@@ -1,4 +1,4 @@
 [build]
   base = "dorado-wellness-app"
   command = "npm run build"
-  publish = "dorado-wellness-app/dist"
+  publish = "dist"
