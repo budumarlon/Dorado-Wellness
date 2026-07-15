@@ -32,6 +32,11 @@ import {
    Signature motif: a soft cradling arc, echoing the logo's hands.
 --------------------------------------------------------------- */
 
+const GAL_LEG_SERVICE =
+  "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=900&q=80&auto=format&fit=crop";
+const GAL_CHEST_LASER_SERVICE =
+  "https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?w=900&q=80&auto=format&fit=crop";
+
 const SERVICES = [
   {
     id: "massage",
@@ -80,7 +85,7 @@ const SERVICES = [
     price: "from ₵50",
     icon: Droplet,
     blurb: "Full-body waxing, from eyebrows to full legs.",
-    image: GAL_LEG,
+    image: GAL_LEG_SERVICE,
     details: [
       { label: "Legs", price: "₵350" },
       { label: "Half Legs", price: "₵300" },
@@ -104,7 +109,7 @@ const SERVICES = [
     price: "from ₵250",
     icon: Zap,
     blurb: "Long-lasting hair reduction across every area.",
-    image: GAL_CHEST_LASER,
+    image: GAL_CHEST_LASER_SERVICE,
     details: [
       { label: "Full Legs", price: "₵1000" },
       { label: "Half Legs", price: "₵800" },
@@ -278,7 +283,7 @@ export default function DoradoWellness() {
   const [authLoading, setAuthLoading] = useState(false);
 
   useEffect(() => {
-    if (!isSupabaseConfigured) return;
+    if (!isSupabaseConfigured || !supabase) return;
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
     const { data: listener } = supabase.auth.onAuthStateChange((_event, s) => setSession(s));
     return () => listener.subscription.unsubscribe();
@@ -287,6 +292,10 @@ export default function DoradoWellness() {
   async function signInStaff(e) {
     e.preventDefault();
     setAuthError("");
+    if (!isSupabaseConfigured) {
+      setAuthError("Staff sign-in is unavailable until Supabase is configured.");
+      return;
+    }
     setAuthLoading(true);
     const { error } = await supabase.auth.signInWithPassword({
       email: authEmail,
@@ -301,35 +310,41 @@ export default function DoradoWellness() {
   }
 
   async function signOutStaff() {
+    if (!isSupabaseConfigured || !supabase) return;
     await supabase.auth.signOut();
+    setSession(null);
   }
 
   // Fetch real bookings from Supabase whenever a signed-in staff member views the dashboard
   useEffect(() => {
-    if (!isSupabaseConfigured || !session || view !== "staff") return;
+    if (!isSupabaseConfigured || !supabase || !session || view !== "staff") return;
     let cancelled = false;
-    supabase
-      .from("bookings")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .then(({ data, error }) => {
-        if (!cancelled && !error && data) {
-          setBookings(
-            data.map((b) => ({
-              id: b.id,
-              service: b.service,
-              date: b.date_key,
-              dateLabel: b.date_label,
-              time: b.time,
-              name: b.name,
-              email: b.email,
-              phone: b.phone,
-              notes: b.notes,
-              status: b.status,
-            }))
-          );
-        }
-      });
+
+    const fetchBookings = async () => {
+      const { data, error } = await supabase
+        .from("bookings")
+        .select("id, created_at, service, date_key, date_label, time, name, email, phone, notes, status")
+        .order("created_at", { ascending: false });
+
+      if (!cancelled && !error && data) {
+        setBookings(
+          data.map((b) => ({
+            id: b.id,
+            service: b.service,
+            date: b.date_key,
+            dateLabel: b.date_label,
+            time: b.time,
+            name: b.name,
+            email: b.email,
+            phone: b.phone,
+            notes: b.notes,
+            status: b.status,
+          }))
+        );
+      }
+    };
+
+    fetchBookings();
     return () => {
       cancelled = true;
     };
@@ -338,7 +353,7 @@ export default function DoradoWellness() {
   async function submitContact(e) {
     e.preventDefault();
     setContactError("");
-    if (!isSupabaseConfigured) {
+    if (!isSupabaseConfigured || !supabase) {
       setContactSent(true);
       setContactForm({ name: "", email: "", subject: "", message: "" });
       return;
@@ -352,7 +367,9 @@ export default function DoradoWellness() {
     });
     setSubmitting(false);
     if (error) {
-      setContactError("Something went wrong sending your message. Please try WhatsApp or call us directly.");
+      console.error("Contact form Supabase error", error);
+      const detail = error?.message ? ` ${error.message}` : "";
+      setContactError(`Something went wrong sending your message.${detail}`);
     } else {
       setContactSent(true);
       setContactForm({ name: "", email: "", subject: "", message: "" });
@@ -397,7 +414,7 @@ export default function DoradoWellness() {
       status: "Pending",
     };
 
-    if (!isSupabaseConfigured) {
+    if (!isSupabaseConfigured || !supabase) {
       setBookings((prev) => [booking, ...prev]);
       setStep(4);
       return;
@@ -418,10 +435,16 @@ export default function DoradoWellness() {
     setSubmitting(false);
 
     if (error) {
+      console.error("Booking Supabase error", error);
+      const detail = error?.message ? ` ${error.message}` : "";
+      const fallback = error?.code === "42501"
+        ? " This looks like a Supabase Row Level Security issue. Please confirm the SQL policies were applied to the bookings table."
+        : "";
       setBookingError(
-        "We couldn't submit that just now. Please try again, or message us directly on WhatsApp to book."
+        `We couldn't submit that just now.${detail}${fallback}`
       );
     } else {
+      setBookings((prev) => [booking, ...prev]);
       setStep(4);
     }
   }
@@ -434,7 +457,7 @@ export default function DoradoWellness() {
   }
   async function setBookingStatus(id, status) {
     setBookings((prev) => prev.map((b) => (b.id === id ? { ...b, status } : b)));
-    if (isSupabaseConfigured) {
+    if (isSupabaseConfigured && supabase) {
       await supabase.from("bookings").update({ status }).eq("id", id);
     }
   }

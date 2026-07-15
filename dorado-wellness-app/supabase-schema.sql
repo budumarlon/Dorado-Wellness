@@ -22,6 +22,10 @@ create table if not exists public.bookings (
 
 alter table public.bookings enable row level security;
 
+drop policy if exists "Public can submit a booking" on public.bookings;
+drop policy if exists "Staff can view bookings" on public.bookings;
+drop policy if exists "Staff can update bookings" on public.bookings;
+
 create policy "Public can submit a booking"
   on public.bookings for insert
   to anon
@@ -48,6 +52,9 @@ create table if not exists public.contact_messages (
 );
 
 alter table public.contact_messages enable row level security;
+
+drop policy if exists "Public can send a message" on public.contact_messages;
+drop policy if exists "Staff can view messages" on public.contact_messages;
 
 create policy "Public can send a message"
   on public.contact_messages for insert
