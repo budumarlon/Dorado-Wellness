@@ -257,6 +257,24 @@ function slotsForDate(d) {
   return OPEN_SLOTS;
 }
 
+function normalizePhoneNumber(phone) {
+  if (!phone) return "";
+
+  let value = String(phone).trim();
+  value = value.replace(/[^\d+]/g, "");
+
+  if (!value) return "";
+  if (value.startsWith("00")) {
+    value = `+${value.slice(2)}`;
+  } else if (value.startsWith("0")) {
+    value = `+233${value.slice(1)}`;
+  } else if (!value.startsWith("+")) {
+    value = `+${value}`;
+  }
+
+  return value;
+}
+
 export default function DoradoWellness() {
   const scrolled = useScrolled();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -281,6 +299,8 @@ export default function DoradoWellness() {
   const [authPassword, setAuthPassword] = useState("");
   const [authError, setAuthError] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
+  const [staffAlert, setStaffAlert] = useState(null);
+  const [notificationPermission, setNotificationPermission] = useState("default");
 
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) return;
@@ -288,6 +308,68 @@ export default function DoradoWellness() {
     const { data: listener } = supabase.auth.onAuthStateChange((_event, s) => setSession(s));
     return () => listener.subscription.unsubscribe();
   }, []);
+
+  function showStaffAlert(title, body) {
+    setStaffAlert({ title, body });
+    if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+      new Notification(title, { body });
+    }
+  }
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !("Notification" in window)) return;
+    setNotificationPermission(Notification.permission);
+    if (session && view === "staff" && Notification.permission === "default") {
+      Notification.requestPermission().then((permission) => setNotificationPermission(permission));
+    }
+  }, [session, view]);
+
+  useEffect(() => {
+    if (!staffAlert) return;
+    const timer = window.setTimeout(() => setStaffAlert(null), 6500);
+    return () => window.clearTimeout(timer);
+  }, [staffAlert]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase || !session || view !== "staff") return;
+
+    const channel = supabase
+      .channel("bookings-realtime")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "bookings" },
+        (payload) => {
+          const booking = payload.new;
+          const mapped = {
+            id: booking.id,
+            service: booking.service,
+            date: booking.date_key,
+            dateLabel: booking.date_label,
+            time: booking.time,
+            name: booking.name,
+            email: booking.email,
+            phone: booking.phone,
+            notes: booking.notes,
+            status: booking.status,
+          };
+
+          setBookings((prev) => {
+            if (prev.some((item) => item.id === mapped.id)) return prev;
+            return [mapped, ...prev];
+          });
+
+          showStaffAlert(
+            "New booking received",
+            `${booking.name} booked ${booking.service} for ${booking.date_label} at ${booking.time}`
+          );
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [session, view]);
 
   async function signInStaff(e) {
     e.preventDefault();
@@ -400,6 +482,7 @@ export default function DoradoWellness() {
   async function submitBooking(e) {
     e.preventDefault();
     setBookingError("");
+    const normalizedPhone = normalizePhoneNumber(form.phone);
     const booking = {
       id: `${Date.now()}`,
       service: service.name,
@@ -411,6 +494,7 @@ export default function DoradoWellness() {
       }),
       time,
       ...form,
+      phone: normalizedPhone,
       status: "Pending",
     };
 
@@ -445,6 +529,25 @@ export default function DoradoWellness() {
       );
     } else {
       setBookings((prev) => [booking, ...prev]);
+      try {
+        const confirmationUrl = import.meta.env.DEV
+          ? "http://localhost:8888/.netlify/functions/send-confirmation"
+          : "/.netlify/functions/send-confirmation";
+
+        await fetch(confirmationUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            phone: booking.phone,
+            name: booking.name,
+            service: booking.service,
+            dateLabel: booking.dateLabel,
+            time: booking.time,
+          }),
+        });
+      } catch (notificationError) {
+        console.warn("Confirmation message could not be sent", notificationError);
+      }
       setStep(4);
     }
   }
@@ -464,6 +567,17 @@ export default function DoradoWellness() {
 
   return (
     <div className="min-h-screen bg-[#FAF6EC] text-[#17140D]" style={{ fontFamily: "'Work Sans', sans-serif" }}>
+      {staffAlert && (
+        <div className="fixed top-4 right-4 z-50 max-w-sm rounded-2xl border border-[#D6A032]/40 bg-[#17140D] p-4 text-[#FAF6EC] shadow-2xl">
+          <p className="text-sm font-semibold">{staffAlert.title}</p>
+          <p className="mt-1 text-sm text-[#FAF6EC]/80">{staffAlert.body}</p>
+          <p className="mt-2 text-xs text-[#D6A032]">
+            {notificationPermission === "granted"
+              ? "Browser notification enabled"
+              : "Open this page on your phone and allow notifications for a native alert"}
+          </p>
+        </div>
+      )}
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500&family=Work+Sans:wght@300;400;500;600&display=swap');
         .font-display { font-family: 'Fraunces', serif; }
@@ -812,7 +926,7 @@ export default function DoradoWellness() {
                   <h3 className="font-display text-2xl mb-6">Your details</h3>
                   <form onSubmit={submitBooking} className="grid sm:grid-cols-2 gap-4 max-w-xl">
                     <input required placeholder="Full name" className="col-span-2 sm:col-span-1 border border-[#17140D]/15 rounded-lg px-4 py-3 bg-white/70 focus:outline-none focus:border-[#D6A032]" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-                    <input required type="tel" placeholder="Phone number" className="col-span-2 sm:col-span-1 border border-[#17140D]/15 rounded-lg px-4 py-3 bg-white/70 focus:outline-none focus:border-[#D6A032]" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+                    <input required type="tel" inputMode="tel" placeholder="Phone number (e.g. +233...)" className="col-span-2 sm:col-span-1 border border-[#17140D]/15 rounded-lg px-4 py-3 bg-white/70 focus:outline-none focus:border-[#D6A032]" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
                     <input required type="email" placeholder="Email address" className="col-span-2 border border-[#17140D]/15 rounded-lg px-4 py-3 bg-white/70 focus:outline-none focus:border-[#D6A032]" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
                     <textarea placeholder="Notes for your specialist (optional)" rows={3} className="col-span-2 border border-[#17140D]/15 rounded-lg px-4 py-3 bg-white/70 focus:outline-none focus:border-[#D6A032] resize-none" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
                     {bookingError && <p className="col-span-2 text-xs text-red-600">{bookingError}</p>}
@@ -1065,14 +1179,16 @@ function BookingTicket({ service, date, time, form, onNew }) {
       <div className="w-12 h-12 rounded-full bg-[#7C9473]/15 flex items-center justify-center mx-auto mb-5">
         <Check size={22} className="text-[#7C9473]" />
       </div>
-      <h3 className="font-display text-2xl mb-1">Request received</h3>
+      <h3 className="font-display text-2xl mb-1">Appointment request received</h3>
       <p className="text-sm text-[#17140D]/55 mb-8">
-        We'll confirm by email shortly, {form.name.split(" ")[0] || "there"}.
+        Thank you, {form.name.split(" ")[0] || "there"}. Your appointment request has been received and is now waiting for confirmation from our team.
       </p>
       <div className="ticket-notch bg-[#FFFDF7] border border-[#17140D]/10 rounded-2xl p-6 text-left relative">
-        <p className="eyebrow text-[10px] text-[#B07F1F] uppercase mb-1">Appointment</p>
+        <p className="eyebrow text-[10px] text-[#B07F1F] uppercase mb-1">Appointment details</p>
         <p className="font-display text-xl mb-4">{service?.name}</p>
         <div className="border-t border-dashed border-[#17140D]/15 pt-4 grid grid-cols-2 gap-y-3 text-sm">
+          <span className="text-[#17140D]/50">Client</span>
+          <span className="text-right">{form.name}</span>
           <span className="text-[#17140D]/50">Date</span>
           <span className="text-right">{date?.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}</span>
           <span className="text-[#17140D]/50">Time</span>
@@ -1083,6 +1199,9 @@ function BookingTicket({ service, date, time, form, onNew }) {
           <span className="text-right">{service?.price}</span>
         </div>
       </div>
+      <p className="mt-5 text-xs text-[#17140D]/45">
+        We will contact you shortly to confirm your booking and any next steps.
+      </p>
       <button onClick={onNew} className="mt-8 px-6 py-3 rounded-full border border-[#17140D]/15 text-sm hover:border-[#D6A032] hover:text-[#B07F1F] transition-colors">
         Book another appointment
       </button>
