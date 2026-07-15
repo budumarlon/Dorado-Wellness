@@ -1142,7 +1142,7 @@ export default function DoradoWellness() {
       {/* FOOTER */}
       <footer className="max-w-6xl mx-auto px-6 py-10 flex flex-wrap items-center justify-between gap-4 text-xs text-[#17140D]/50">
         <span className="flex items-center gap-2">
-          <LogoMark size={22} /> © {new Date().getFullYear()} Dorado Wellness · Prototype concept
+          <LogoMark size={22} /> © {new Date().getFullYear()} Dorado Wellness
         </span>
         <div className="flex gap-5">
           {NAV_LINKS.map((l) => (
