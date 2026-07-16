@@ -37,6 +37,38 @@ async function getPayload(event) {
   return {};
 }
 
+function normalizePayload(payloadValue) {
+  if (payloadValue === null || payloadValue === undefined) {
+    return {};
+  }
+
+  if (typeof payloadValue === "string") {
+    try {
+      return JSON.parse(payloadValue.trim());
+    } catch {
+      return {};
+    }
+  }
+
+  if (typeof payloadValue === "object") {
+    if (payloadValue.body && typeof payloadValue.body === "object") {
+      return payloadValue.body;
+    }
+    if (payloadValue.payload && typeof payloadValue.payload === "object") {
+      return payloadValue.payload;
+    }
+    if (payloadValue.data && typeof payloadValue.data === "object") {
+      return payloadValue.data;
+    }
+    if (payloadValue.fields && typeof payloadValue.fields === "object") {
+      return payloadValue.fields;
+    }
+    return payloadValue;
+  }
+
+  return {};
+}
+
 export async function handler(event) {
   const method = event?.httpMethod || event?.method || "";
 
@@ -46,9 +78,7 @@ export async function handler(event) {
 
   try {
     const payloadValue = await getPayload(event);
-    const payload = typeof payloadValue === "string"
-      ? JSON.parse(payloadValue)
-      : payloadValue || {};
+    const payload = normalizePayload(payloadValue);
     const { phone, name, service, dateLabel, time } = payload;
 
     if (!phone || !name || !service || !dateLabel || !time) {
