@@ -5,81 +5,30 @@ function jsonResponse(statusCode, payload) {
   });
 }
 
-async function getPayload(event) {
-  if (event?.body && typeof event.body === "object" && !ArrayBuffer.isView(event.body) && !(event.body instanceof ArrayBuffer)) {
-    return event.body;
-  }
-
-  if (typeof event?.json === "function") {
-    return event.json();
-  }
-
-  if (event?.request && typeof event.request.json === "function") {
-    return event.request.json();
-  }
-
-  if (typeof event?.body === "string") {
-    return event.body;
-  }
-
-  if (event?.body instanceof Uint8Array) {
-    return Buffer.from(event.body).toString("utf8");
-  }
-
-  if (typeof event?.rawBody === "string") {
-    return event.rawBody;
-  }
-
-  if (typeof event?.text === "function") {
-    return event.text();
-  }
-
-  return {};
-}
-
-function normalizePayload(payloadValue) {
-  if (payloadValue === null || payloadValue === undefined) {
-    return {};
-  }
-
-  if (typeof payloadValue === "string") {
-    try {
-      return JSON.parse(payloadValue.trim());
-    } catch {
-      return {};
-    }
-  }
-
-  if (typeof payloadValue === "object") {
-    if (payloadValue.body && typeof payloadValue.body === "object") {
-      return payloadValue.body;
-    }
-    if (payloadValue.payload && typeof payloadValue.payload === "object") {
-      return payloadValue.payload;
-    }
-    if (payloadValue.data && typeof payloadValue.data === "object") {
-      return payloadValue.data;
-    }
-    if (payloadValue.fields && typeof payloadValue.fields === "object") {
-      return payloadValue.fields;
-    }
-    return payloadValue;
-  }
-
-  return {};
-}
-
-export async function handler(event) {
-  const method = event?.httpMethod || event?.method || "";
+export async function handler(event, context) {
+  // Handle both old and new Netlify function formats
+  const request = event instanceof Request ? event : context?.request;
+  const method = request?.method || event?.httpMethod || "GET";
 
   if (method !== "POST") {
     return jsonResponse(405, { ok: false, error: "Method not allowed" });
   }
 
   try {
-    const payloadValue = await getPayload(event);
-    const payload = normalizePayload(payloadValue);
+    let payload = {};
+
+    // Try to parse from Request object (new format)
+    if (request instanceof Request) {
+      payload = await request.json();
+    } 
+    // Try to parse from event.body (old format)
+    else if (event?.body) {
+      const bodyStr = typeof event.body === "string" ? event.body : JSON.stringify(event.body);
+      payload = JSON.parse(bodyStr);
+    }
+
     const { phone, name, service, dateLabel, time } = payload;
+
 
     if (!phone || !name || !service || !dateLabel || !time) {
       return jsonResponse(400, { ok: false, error: "Missing booking details" });
