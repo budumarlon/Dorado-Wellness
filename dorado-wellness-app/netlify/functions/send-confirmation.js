@@ -5,13 +5,36 @@ function jsonResponse(statusCode, payload) {
   });
 }
 
+async function getBodyText(event) {
+  if (typeof event?.body === "string") {
+    return event.body;
+  }
+
+  if (event?.body instanceof Uint8Array) {
+    return Buffer.from(event.body).toString("utf8");
+  }
+
+  if (typeof event?.rawBody === "string") {
+    return event.rawBody;
+  }
+
+  if (typeof event?.text === "function") {
+    return event.text();
+  }
+
+  return "{}";
+}
+
 export async function handler(event) {
-  if (event.httpMethod !== "POST") {
+  const method = event?.httpMethod || event?.method || "";
+  const bodyText = await getBodyText(event);
+
+  if (method !== "POST") {
     return jsonResponse(405, { ok: false, error: "Method not allowed" });
   }
 
   try {
-    const payload = JSON.parse(event.body || "{}");
+    const payload = JSON.parse(typeof bodyText === "string" ? bodyText : "{}");
     const { phone, name, service, dateLabel, time } = payload;
 
     if (!phone || !name || !service || !dateLabel || !time) {
