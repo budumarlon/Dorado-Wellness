@@ -15,16 +15,34 @@ export async function handler(event, context) {
   try {
     let payload = {};
 
-    // Try the newer Netlify format first (event is a Request-like object)
+    // Try: Netlify's newer json() method
     if (typeof event?.json === "function") {
-      payload = await event.json();
+      try {
+        payload = await event.json();
+      } catch (jsonErr) {
+        // json() failed, move to next strategy
+      }
     }
-    // Fall back to the legacy format (event.body is a string)
-    else if (event?.body) {
-      const bodyStr = typeof event.body === "string" 
-        ? event.body 
-        : JSON.stringify(event.body);
-      payload = JSON.parse(bodyStr);
+
+    // Try: event.body as string
+    if (!payload || Object.keys(payload).length === 0) {
+      if (typeof event?.body === "string" && event.body.trim()) {
+        try {
+          payload = JSON.parse(event.body);
+        } catch (parseErr) {
+          // body is not valid JSON, move to next strategy
+        }
+      }
+    }
+
+    // Try: event.body as object
+    if ((!payload || Object.keys(payload).length === 0) && typeof event?.body === "object") {
+      payload = event.body;
+    }
+
+    // Safety: ensure payload is an object
+    if (!payload || typeof payload !== "object") {
+      payload = {};
     }
 
     const { phone, name, service, dateLabel, time } = payload;
