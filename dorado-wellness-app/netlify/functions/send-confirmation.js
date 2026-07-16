@@ -5,28 +5,43 @@ function jsonResponse(statusCode, payload) {
   });
 }
 
+async function parsePayload(requestOrEvent) {
+  try {
+    // If it's a Request object (new Netlify format)
+    if (requestOrEvent instanceof Request) {
+      const text = await requestOrEvent.text();
+      return text ? JSON.parse(text) : {};
+    }
+
+    // If it's an event object (old format)
+    if (requestOrEvent?.body) {
+      const bodyStr = typeof requestOrEvent.body === "string" 
+        ? requestOrEvent.body 
+        : JSON.stringify(requestOrEvent.body);
+      return JSON.parse(bodyStr);
+    }
+
+    return {};
+  } catch (e) {
+    console.error("Parse error:", e.message);
+    return {};
+  }
+}
+
 export async function handler(event, context) {
-  // Handle both old and new Netlify function formats
-  const request = event instanceof Request ? event : context?.request;
-  const method = request?.method || event?.httpMethod || "GET";
+  // Determine if we're in the new Netlify format (event is a Request)
+  const isNewFormat = event instanceof Request;
+  const request = isNewFormat ? event : null;
+  const method = isNewFormat 
+    ? request.method 
+    : (event?.httpMethod || "GET");
 
   if (method !== "POST") {
     return jsonResponse(405, { ok: false, error: "Method not allowed" });
   }
 
   try {
-    let payload = {};
-
-    // Try to parse from Request object (new format)
-    if (request instanceof Request) {
-      payload = await request.json();
-    } 
-    // Try to parse from event.body (old format)
-    else if (event?.body) {
-      const bodyStr = typeof event.body === "string" ? event.body : JSON.stringify(event.body);
-      payload = JSON.parse(bodyStr);
-    }
-
+    const payload = await parsePayload(isNewFormat ? request : event);
     const { phone, name, service, dateLabel, time } = payload;
 
 
