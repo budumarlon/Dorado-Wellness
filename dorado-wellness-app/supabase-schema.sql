@@ -31,6 +31,13 @@ create policy "Public can submit a booking"
   to anon
   with check (true);
 
+drop policy if exists "Public can submit a booking (authenticated)" on public.bookings;
+
+create policy "Public can submit a booking (authenticated)"
+  on public.bookings for insert
+  to authenticated
+  with check (true);
+
 create policy "Staff can view bookings"
   on public.bookings for select
   to authenticated

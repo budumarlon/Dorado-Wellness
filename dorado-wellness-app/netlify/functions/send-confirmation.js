@@ -1,10 +1,13 @@
+function jsonResponse(statusCode, payload) {
+  return new Response(JSON.stringify(payload), {
+    status: statusCode,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
 export async function handler(event) {
   if (event.httpMethod !== "POST") {
-    return {
-      statusCode: 405,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ok: false, error: "Method not allowed" }),
-    };
+    return jsonResponse(405, { ok: false, error: "Method not allowed" });
   }
 
   try {
@@ -12,22 +15,14 @@ export async function handler(event) {
     const { phone, name, service, dateLabel, time } = payload;
 
     if (!phone || !name || !service || !dateLabel || !time) {
-      return {
-        statusCode: 400,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ok: false, error: "Missing booking details" }),
-      };
+      return jsonResponse(400, { ok: false, error: "Missing booking details" });
     }
 
     const smsApiKey = process.env.SMS_API_KEY || process.env.TWILIO_ACCOUNT_SID;
     const senderId = process.env.SMS_SENDER_ID || process.env.TWILIO_FROM_NUMBER;
 
     if (!smsApiKey) {
-      return {
-        statusCode: 200,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ok: false, skipped: true, reason: "SMS credentials not configured" }),
-      };
+      return jsonResponse(200, { ok: false, skipped: true, reason: "SMS credentials not configured" });
     }
 
     const normalizedPhone = String(phone).replace(/[^\d+]/g, "").replace(/^00/, "+");
@@ -49,17 +44,9 @@ export async function handler(event) {
 
     const text = await response.text();
 
-    return {
-      statusCode: response.ok ? 200 : 500,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ok: response.ok, details: text }),
-    };
+    return jsonResponse(response.ok ? 200 : 500, { ok: response.ok, details: text });
   } catch (error) {
-    return {
-      statusCode: 500,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ok: false, error: error.message }),
-    };
+    return jsonResponse(500, { ok: false, error: error.message });
   }
 }
 
