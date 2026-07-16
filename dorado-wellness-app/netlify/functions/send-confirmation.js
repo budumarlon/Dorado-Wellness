@@ -5,7 +5,19 @@ function jsonResponse(statusCode, payload) {
   });
 }
 
-async function getBodyText(event) {
+async function getPayload(event) {
+  if (event?.body && typeof event.body === "object" && !ArrayBuffer.isView(event.body) && !(event.body instanceof ArrayBuffer)) {
+    return event.body;
+  }
+
+  if (typeof event?.json === "function") {
+    return event.json();
+  }
+
+  if (event?.request && typeof event.request.json === "function") {
+    return event.request.json();
+  }
+
   if (typeof event?.body === "string") {
     return event.body;
   }
@@ -22,19 +34,21 @@ async function getBodyText(event) {
     return event.text();
   }
 
-  return "{}";
+  return {};
 }
 
 export async function handler(event) {
   const method = event?.httpMethod || event?.method || "";
-  const bodyText = await getBodyText(event);
 
   if (method !== "POST") {
     return jsonResponse(405, { ok: false, error: "Method not allowed" });
   }
 
   try {
-    const payload = JSON.parse(typeof bodyText === "string" ? bodyText : "{}");
+    const payloadValue = await getPayload(event);
+    const payload = typeof payloadValue === "string"
+      ? JSON.parse(payloadValue)
+      : payloadValue || {};
     const { phone, name, service, dateLabel, time } = payload;
 
     if (!phone || !name || !service || !dateLabel || !time) {
